@@ -3,6 +3,7 @@ const express = require('express')
 const app = express()
 const fs = require('fs')
 const path = require('path')
+const {convertCSVToSqlite} = require('./csv2sqlite')
 
 app.get('/parse', (req, res) => {
     let filePath = req.query.filePath
@@ -22,6 +23,10 @@ app.get('/parse', (req, res) => {
     }).catch(err => {
         res.status(500).send(err)
     })
+})
+app.get('/convert', (req, res) => {
+    let filePath = req.query.filePath
+    convertCSVToSqlite(filePath).then(table => res.status(200).send(table)).catch(err => res.status(400).send('can not convert'))
 })
 
 app.get('/count', (req, res) => {
