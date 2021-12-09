@@ -1,62 +1,63 @@
-const { parse, count } = require('./papa-parser')
 const express = require('express')
-const app = express()
 const fs = require('fs')
 const path = require('path')
-const {convertCSVToSqlite} = require('./csv2sqlite')
+const {convertCSVToSqlite, fetchCSVRows, fetchColumnUniqueValue, removeCSVSqlite} = require('./csv2sqlite')
+const bodyParser = require('body-parser')
+
+const app = express()
+app.use(bodyParser.json())
 
 app.get('/parse', (req, res) => {
-    let filePath = req.query.filePath
-    let fp = path.resolve(filePath);
-    if (!fs.existsSync(fp) || !fs.lstatSync(fp).isFile()) {
-        res.status(500).send('invalid file path: ' + filePath)
-    }
-    parse(fs.createReadStream(fp), {
-        startIndex: req.query.startIndex,
-        stopIndex: req.query.stopIndex
-    }).then(items => {
-        res.set({
-            'content-type': 'application/json;charset=utf-8',
-            'Access-Control-Allow-Origin': '*'
+    __checkFilePath(req.query.filePath)
+        .then(async fp => {
+            const {filePath, offset=0, limit=200} = req.query
+            const {sorter={}, filter={}, columns} = req.body
+            const items = await fetchCSVRows({filePath, columns, offset, limit, sorter, filter})
+            res.set({
+                'content-type': 'application/json;charset=utf-8',
+                'Access-Control-Allow-Origin': '*'
+            })
+            res.json(items)
         })
-        res.json(items)
-    }).catch(err => {
-        res.status(500).send(err)
-    })
+        .catch(err => res.status(500).send(err))
 })
+
 app.get('/convert', (req, res) => {
-    let filePath = req.query.filePath
-    convertCSVToSqlite(filePath).then(table => res.status(200).send(table)).catch(err => res.status(400).send('can not convert'))
+    __checkFilePath(req.query.filePath)
+        .then(async fp => {
+            const table = await convertCSVToSqlite(filePath)
+            res.status(200).send(table)
+        })
+        .catch(err => res.status(500).send(err))
 })
 
-app.get('/count', (req, res) => {
-    let filePath = req.query.filePath
+app.get('/unique', (req, res) => {
+    const {filePath, filter, columnName} = req.body
+    __checkFilePath(filePath)
+        .then(async fp => {
+            const values = await fetchColumnUniqueValue({filePath, columnName, filter})
+            res.set({
+                'content-type': 'application/json;charset=utf-8',
+                'Access-Control-Allow-Origin': '*'
+            })
+            res.json(values)
+        })
+        .catch(err => res.status(500).send(err))
+})
+
+app.get('/delete', (req, res) => {
+    const {filePath} = req.body
+    removeCSVSqlite(filePath).then(() => res.status(200).send('Removed successfully.')).catch(err => res.status(500).send(err))
+})
+
+async function __checkFilePath(filePath) {
     let fp = path.resolve(filePath);
     if (!fs.existsSync(fp) || !fs.lstatSync(fp).isFile()) {
-        res.status(500).send('invalid file path: ' + filePath)
+        throw new Error(`${filePath} is invalid`)
     }
-    count(fs.createReadStream(fp))
-    .then(c => {
-        res.set({
-            'content-type': 'application/json;charset=utf-8',
-            'Access-Control-Allow-Origin': '*'
-        })
-        res.status(200).json(c)
-    }).catch(err => {
-        console.log(err)
-        res.status(500).send(err)
-    })
-})
+    return fp
+}
 
-app.get('/download', (req, res) => {
-    res.download('./badmiton.png', err => {
-        if (err) {
-            console.log('download error', err)
-        } else {
-            console.log('download successful')
-        }
-    })
-})
 app.listen(8080, () => {
     console.log('listen on 8080')
 })
